@@ -1,30 +1,22 @@
-  /* Ardumoto Example Sketch
-  by: Jim Lindblom
-  date: November 8, 2013
-  license: Public domain. Please use, reuse, and modify this 
-  sketch!
+  /* Toxic spitter
+  by: Steven venham, Brian Bartman
+  date: October 4th 2018
+  license: Meh
 
-  Three useful functions are defined:
-    setupArdumoto() -- Setup the Ardumoto Shield pins
-    driveArdumoto([motor], [direction], [speed]) -- Drive [motor] 
-      (0 for A, 1 for B) in [direction] (0 or 1) at a [speed]
-      between 0 and 255. It will spin until told to stop.
-    stopArdumoto([motor]) -- Stop driving [motor] (0 or 1).
-
-  setupArdumoto() is called in the setup().
-  The loop() demonstrates use of the motor driving functions.
+  Detect at 5ft:
+    Turn on lights for 30 seconds
+  Detect at 2ft:
+    Turn on Motor
+    if(30% Random)
+      Fire Servo
 */
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 
 #define PIN 5
 #define NUM_LEDS 5
-// ========================================================
-//              This is BRG coloring!
-// ========================================================
+
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN, NEO_RGB + NEO_KHZ800);
-
-
 
 Servo myServo;  // create a servo object
 // Clockwise and counter-clockwise definitions.
@@ -46,8 +38,9 @@ const byte DIRA = 12; // Direction control for motor A
 
 void setup()
 {
-  setupArdumoto(); // Set all pins as outputs
-    //Serial Port begin
+  // Set all pins as outputs
+  setupArdumoto(); 
+  //Serial Port begin
   Serial.begin (9600);
   //Define inputs and outputs
   pinMode(trigPin, OUTPUT);
@@ -60,10 +53,11 @@ void setup()
   strip.show(); // Initialize all pixels to 'off'
 }
 
-void loop()
-{
-  Twinkle(500);
-  
+lights servo servo
+
+echo13blue
+trig11green
+void checkDistanceOfSensor(){
   // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
   // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
   digitalWrite(trigPin, LOW);
@@ -100,6 +94,14 @@ void loop()
   Serial.print(cm);
   Serial.print("cm");
   Serial.println();
+}
+
+//No delays in Loop
+void loop()
+{
+  Twinkle(500);
+  
+  checkDistanceOfSensor();
   
   delay(250);
 
