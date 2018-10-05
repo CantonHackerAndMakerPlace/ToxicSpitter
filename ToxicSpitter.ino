@@ -13,131 +13,193 @@
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 
-#define PIN 5
-#define NUM_LEDS 5
+//Pin Information
+const uint8_t LED_PIN = 5;
+const uint8_t SERVO_1 = 6;
+const uint8_t SERVO_2 = 7;
+const uint8_t SENS_TRIG = 11;
+const uint8_t SENS_ECHO = 13;
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN, NEO_RGB + NEO_KHZ800);
+//NeoPixle Configuration
+const uint8_t NUM_LEDS = 5;
+Adafruit_NeoPixel strip;
+const uint8_t TWINKLE_RATE = 10;
 
-Servo myServo;  // create a servo object
-// Clockwise and counter-clockwise definitions.
-// Depending on how you wired your motors, you may need to swap.
-#define CW  0
-#define CCW 1
+//Servo Configuration
+Servo servo_head;
+Servo servo_spit;
 
-// Motor definitions to make life easier:
-#define MOTOR_A 0
+//Head
+bool already_fireing = false;
 
-int trigPin = 11;    // Trigger
-int echoPin = 13;    // Echo
-long duration, cm, inches;
+//Timer Config
+const int LIGHT_DELAY_MAX = 7000; //How long lights stay on
+const int COOLDOWN_TIMER_MAX = 30000; //How long before next scare.
+const int DELAY_BEFORE_SPRAY = 2000; //Delay before spit
+const int HOLD_SPRAY_MAX = 1000; //Hold down spit servo
+const int HEAD_UP_MAX = 2000; //How long head stays up
+unsigned long light_timer;
+unsigned long cooldown_timer;
+unsigned long head_timer;
+unsigned long spit_timer;
+unsigned long begin_time = 0;
+unsigned long end_time = 0;
+
+//Distance avarage
+const int DIS_ACC = 30;
+unsigned int mesures[DIS_ACC];
+int mesures_index = 0;
+const unsigned int MAX_DISTANCE = 400;
  
-// Pin Assignments //
-// Don't change these! These pins are statically defined by shield layout
-const byte PWMA = 3;  // PWM control (speed) for motor A
-const byte DIRA = 12; // Direction control for motor A
-
-void setup()
-{
-  // Set all pins as outputs
-  setupArdumoto(); 
-  //Serial Port begin
+void setup(){
+  //Setup Serial Information
   Serial.begin (9600);
-  //Define inputs and outputs
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  myServo.attach(9); // attaches the servo on pin 9 to the servo object
-  Serial.begin(9600); // open a serial connection to your computer
   
-  // Starting LED strip.
+  //Define inputs and outputs
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(SERVO_1, OUTPUT);
+  pinMode(SERVO_2, OUTPUT);
+  pinMode(SENS_TRIG, OUTPUT);
+  pinMode(SENS_ECHO, INPUT);
+
+  //Init the neopixle information
+  strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_RGB + NEO_KHZ800);
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
+
+  //init servos
+  servo_head.attach(SERVO_1); // attaches the servo on pin 9 to the servo object
+  servo_spit.attach(SERVO_2); // attaches the servo on pin 9 to the servo object
+
+  //init avarage distance
+  for(int i = 0; i < DIS_ACC; i++)
+  {
+    mesures[i] = MAX_DISTANCE;
+  }
 }
 
-lights servo servo
+unsigned int getAvarageDistance(){
+  unsigned int dist = getDistanceOfSensor();
+  if(dist > MAX_DISTANCE)
+  {
+     mesures[mesures_index] = MAX_DISTANCE;
+  }
+  else
+  {
+    mesures[mesures_index] = dist;
+  }
 
-echo13blue
-trig11green
-void checkDistanceOfSensor(){
+  if(++mesures_index == DIS_ACC)
+  {
+    mesures_index = 0;
+  }
+  
+  long total = 0;
+  for(int i = 0; i < DIS_ACC; i++)
+  {
+    total += mesures[i];
+  }
+
+  return total / DIS_ACC;
+}
+
+unsigned int getDistanceOfSensor(){
   // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
   // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(5);
-  digitalWrite(trigPin, HIGH);
+  digitalWrite(SENS_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(SENS_TRIG, HIGH);
   delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+  digitalWrite(SENS_TRIG, LOW);
  
   // Read the signal from the sensor: a HIGH pulse whose
   // duration is the time (in microseconds) from the sending
   // of the ping to the reception of its echo off of an object.
-  pinMode(echoPin, INPUT);
-  duration = pulseIn(echoPin, HIGH);
+  pinMode(SENS_ECHO, INPUT);
+  int duration = pulseIn(SENS_ECHO, HIGH);
+
+  int distance = (duration / 2) * 0.0343;
  
-
   // Convert the time into a distance
-  cm = (duration/2) / 29.1;     // Divide by 29.1 or multiply by 0.0343
-  inches = (duration/2) / 74;   // Divide by 74 or multiply by 0.0135
- if (inches < 7)
- {
-     // Drive motor A (and only motor A) at various speeds, then stop.
-      driveArdumoto(MOTOR_A, CCW, 200);  // Set motor A to CW at half
-      delay(500);  // Motor A will keep trucking for 1 second 
-     stopArdumoto(MOTOR_A);  // STOP motor A 
-       delay(2000);  //
-       myServo.write(90);
-       delay(2000);  //
-       myServo.write(10);
-     delay(5000);  //
-
-  }
-  Serial.print(inches);
-  Serial.print("in, ");
-  Serial.print(cm);
-  Serial.print("cm");
-  Serial.println();
+  //cm = (duration/2) / 29.1;     // Divide by 29.1 or multiply by 0.0343
+  //inches = (duration/2) / 74;   // Divide by 74 or multiply by 0.0135
+  return distance;
 }
 
-//No delays in Loop
-void loop()
-{
-  Twinkle(500);
-  
-  checkDistanceOfSensor();
-  
-  delay(250);
-
- }
-
-// driveArdumoto drives 'motor' in 'dir' direction at 'spd' speed
-void driveArdumoto(byte motor, byte dir, byte spd)
-{
-  if (motor == MOTOR_A)
+void recalculate(const unsigned long deltatime,unsigned long& mtime){
+  if(mtime > 0)
   {
-    digitalWrite(DIRA, dir);
-    analogWrite(PWMA, spd);
+    if(mtime < deltatime)
+    {
+      mtime = 0;
+    }
+    else
+    {
+      mtime -= deltatime;
+    }
+  }
+}
+
+void fireHead(){
+  if(already_fireing)
+  {
+    
+  }
+  else
+  {
+    Serial.println("FIRE");
+    //Do calculations to see if it sprays
+    servo_head.write(170);
+    already_fireing = true;
+  }
+}
+//No delays in Loop =D
+void loop(){
+  unsigned long deltatime = end_time - begin_time;
+  begin_time = millis();
+  //Apply time delta
+  recalculate(deltatime,light_timer);
+  recalculate(deltatime,head_timer);
+  recalculate(deltatime,spit_timer);
+  //CHeck triggers
+  if(head_timer == 0){
+    if(already_fireing)
+    {
+      Serial.println("DONE");
+      already_fireing = false;
+      servo_head.write(0);
+    }
+  }
+  else{
+    fireHead();
+  }
+  if(light_timer == 0){
+    setAll(0,0,0);
+    showStrip();
+  }
+  else{
+    twinkle();
+  }
+  if(spit_timer == 0){
+    servo_spit.write(0);
+  }
+  else{
+    
   }
   
+  int distance = getAvarageDistance();
+  if(distance < 120){
+    light_timer = LIGHT_DELAY_MAX;
+  }
+  if(distance < 40){
+    head_timer = HEAD_UP_MAX;
+  }
+  end_time = millis();
 }
 
-// stopArdumoto makes a motor stop
-void stopArdumoto(byte motor)
-{
-  driveArdumoto(motor, 0, 0);
-}
 
-// setupArdumoto initialize all pins
-void setupArdumoto()
-{
-  // All pins should be setup as outputs:
-  pinMode(PWMA, OUTPUT);
-  pinMode(DIRA, OUTPUT);
-
-  // Initialize all pins as low:
-  digitalWrite(PWMA, LOW);
-  digitalWrite(DIRA, LOW);
-}
-void Twinkle(int SpeedDelay) {
-  setAll(0,0,0);
-  
+void twinkle() {
+  //setAll(0,0,0);
   for (int i=0; i<NUM_LEDS; i++) {
     switch(random(3)) {
       case 0:
@@ -152,12 +214,9 @@ void Twinkle(int SpeedDelay) {
         // Whit-ish
         setPixel(random(NUM_LEDS),0xE0, 0xE0, 0xE0);
         break;
-
     }
     showStrip(); 
   }
-  
-  delay(SpeedDelay);
 }
 
 void showStrip() {
@@ -190,6 +249,7 @@ void setAll(byte red, byte green, byte blue) {
   }
   showStrip();
 }
+
 
 
 
