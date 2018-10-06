@@ -25,6 +25,9 @@ const uint8_t NUM_LEDS = 5;
 Adafruit_NeoPixel strip;
 const uint8_t TWINKLE_RATE = 10;
 bool lights_on = false;
+const uint8_t LIGHT_SENS_MAX = 10;
+const uint8_t LIGHT_SENS_DISTANCE_MAX = 120;
+uint16_t light_sens = 0;
 
 //Servo Configuration
 Servo servo_head;
@@ -32,21 +35,24 @@ Servo servo_spit;
 
 //Head
 bool already_fireing = false;
-const unsigned int HEAD_BEGIN_ANGLE = 0;
-const unsigned int HEAD_END_ANGLE = 90;
+const uint16_t HEAD_BEGIN_ANGLE = 0;
+const uint16_t HEAD_END_ANGLE = 90;
+const uint16_t HEAD_SENS_MAX = 100;
+const uint16_t HEAD_SENS_DISTANCE_MAX = 40;
+uint16_t head_sens = 0;
 
 //Spit
-const unsigned int SPIT_BEGIN_ANGLE = 0;
-const unsigned int SPIT_END_ANGLE = 90;
+const uint8_t SPIT_BEGIN_ANGLE = 0;
+const uint8_t SPIT_END_ANGLE = 90;
 bool need_to_spit = false;
-const unsigned int SPIT_CHANCE = 30; //30%
+const uint8_t SPIT_CHANCE = 30; //30%
 
 //Timer Config (In Mili)
-const int LIGHT_DELAY_MAX = 7000; //How long lights stay on
-const int COOLDOWN_TIMER_MAX = 3000; //How long before next scare.
-const int DELAY_BEFORE_SPRAY = 2000; //Delay before spit
-const int HOLD_SPRAY_MAX = 1000; //Hold down spit servo
-const int HEAD_UP_MAX = 3000; //How long head stays up
+const uint16_t LIGHT_DELAY_MAX = 7000; //How long lights stay on
+const uint16_t COOLDOWN_TIMER_MAX = 3000; //How long before next scare.
+const uint16_t DELAY_BEFORE_SPRAY = 2000; //Delay before spit
+const uint16_t HOLD_SPRAY_MAX = 1000; //Hold down spit servo
+const uint16_t HEAD_UP_MAX = 3000; //How long head stays up
 unsigned long light_timer;
 unsigned long cooldown_timer;
 unsigned long head_timer;
@@ -57,9 +63,9 @@ unsigned long end_time = 0;
 
 //Distance avarage(In CM)
 const int DIS_ACC = 30; //Sample Avg.
-unsigned int mesures[DIS_ACC];
+uint16_t mesures[DIS_ACC];
 int mesures_index = 0;
-const unsigned int MAX_DISTANCE = 400;
+const uint16_t MAX_DISTANCE = 400;
  
 void setup(){
   //Setup Serial Information
@@ -82,6 +88,25 @@ void setup(){
   servo_spit.attach(SERVO_2); // attaches the servo on pin 9 to the servo object
 
   //init avarage distance
+  for(int i = 0; i < DIS_ACC; i++)
+  {
+    mesures[i] = MAX_DISTANCE;
+  }
+  Serial.println("READY");
+}
+
+void startCooldown(){
+  lightsOff();
+  Serial.println("DONE");
+  already_fireing = false;
+  servo_head.write(HEAD_END_ANGLE);
+  servo_spit.write(SPIT_END_ANGLE);
+  cooldown_timer = COOLDOWN_TIMER_MAX;
+  light_timer = 0;
+  head_timer = 0;
+  spit_timer = 0;
+  need_to_spit = false;
+  lights_on = false;
   for(int i = 0; i < DIS_ACC; i++)
   {
     mesures[i] = MAX_DISTANCE;
@@ -219,12 +244,7 @@ void recalculate(const unsigned long deltatime,unsigned long& mtime){
 void handleHead(){
   if(head_timer == 0){
       if(already_fireing){
-        lightsOff();
-        Serial.println("DONE");
-        already_fireing = false;
-        servo_head.write(HEAD_END_ANGLE);
-        servo_spit.write(SPIT_END_ANGLE);
-        cooldown_timer = COOLDOWN_TIMER_MAX;
+        startCooldown();
       }
     }
     else{
@@ -283,16 +303,42 @@ void loop(){
     handleSpit();
     handleHead();
 
-    if(!already_fireing)
-    {
-      int distance = getAvarageDistance();
-      if(distance < 120){
-        light_timer = LIGHT_DELAY_MAX;
+   if(!already_fireing){
+    int distance = getAvarageDistance();
+      if(distance < LIGHT_SENS_DISTANCE_MAX){
+        if(light_sens >= LIGHT_SENS_MAX)
+        {
+          light_timer = LIGHT_DELAY_MAX;
+        }
+        else
+        {
+          light_sens++;
+        }
       }
-      if(distance < 40){
-        head_timer = HEAD_UP_MAX;
+      else{
+        if(light_sens > 0)
+        {
+          light_sens--;
+        }
       }
-    }    
+      if(distance < HEAD_SENS_DISTANCE_MAX){
+        if(head_sens >= HEAD_SENS_MAX)
+        {
+          head_timer = HEAD_UP_MAX;
+        }
+        else
+        {
+          head_sens++;
+        }
+      }
+      else{
+        if(head_sens > 0)
+        {
+          head_sens--;
+        }
+      } 
+   }
+    
   }
   else
   {
