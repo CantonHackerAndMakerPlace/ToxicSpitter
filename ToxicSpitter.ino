@@ -9,6 +9,12 @@
     Turn on Motor
     if(30% Random)
       Fire Servo
+
+  Notes: 
+    PWM and other blocking librays DO NOT GET ALONG.
+    Servos twich due to delay commands in PWM circutry.
+    This also HEAVILY applies to SERIAL output.
+    If you want Debug info, you MUST set a high baud rate.
 */
 
 #define DEBUG_PRINT(x) //Serial.println(x);
@@ -16,42 +22,57 @@
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 
-//Pin Information
+//Pin CONFIG
 const uint8_t LED_PIN = 5;
 const uint8_t SERVO_1 = 6;
 const uint8_t SERVO_2 = 7;
 const uint8_t SENS_TRIG = 11;
 const uint8_t SENS_ECHO = 13;
 
-//NeoPixle Configuration
-const uint8_t NUM_LEDS = 5;
-Adafruit_NeoPixel strip;
-const uint8_t TWINKLE_RATE = 10;
-bool lights_on = false;
-const uint8_t LIGHT_SENS_MAX = 10;
-const uint8_t LIGHT_SENS_DISTANCE_MAX = 120;
-uint16_t light_sens = 0;
+//NeoPixle CONFIG
+const uint8_t NUM_LEDS = 5; //How many LED in the strip?
+const uint8_t TWINKLE_RATE = 10; //How many miliseconds before lights change color
+const uint8_t LIGHT_SENS_MAX = 10; //Threshold before activation
+const uint8_t LIGHT_SENS_DISTANCE_MAX = 120; //Cm to trigger lights
 
-//Head
-bool already_fireing = false;
-const uint16_t HEAD_BEGIN_ANGLE = 0;
-const uint16_t HEAD_END_ANGLE = 90;
-const uint16_t HEAD_SENS_MAX = 100;
-const uint16_t HEAD_SENS_DISTANCE_MAX = 40;
-uint16_t head_sens = 0;
+//Head CONFIG
+const uint16_t HEAD_BEGIN_ANGLE = 0; //Angle of head servo begin
+const uint16_t HEAD_END_ANGLE = 90; //Angle of head servo end
+const uint16_t HEAD_SENS_MAX = 100; //Threshold before activation
+const uint16_t HEAD_SENS_DISTANCE_MAX = 40; //cm to trigger Head
 
-//Spit
-const uint8_t SPIT_BEGIN_ANGLE = 0;
-const uint8_t SPIT_END_ANGLE = 120;
-bool need_to_spit = false;
-const uint8_t SPIT_CHANCE = 30; //30%
+//Spit CONFIG
+const uint8_t SPIT_BEGIN_ANGLE = 0; //Begin angle of spit servo
+const uint8_t SPIT_END_ANGLE = 120; //End angle of spit servo
+const uint8_t SPIT_CHANCE = 30; //x/100
 
 //Timer Config (In Mili)
 const uint16_t LIGHT_DELAY_MAX = 7000; //How long lights stay on
 const uint16_t COOLDOWN_TIMER_MAX = 10000; //How long before next scare.
 const uint16_t DELAY_BEFORE_SPRAY = 2000; //Delay before spit
 const uint16_t HOLD_SPRAY_MAX = 1000; //Hold down spit servo
-const uint16_t HEAD_UP_MAX = 3000; //How long head stays up
+
+/* ======================================
+ * CONFIG END
+ * Code beyond Here should not be edited.
+ */
+ 
+//Distance avarage(In CM)
+const int DIS_ACC = 12; //Sample Avg.
+uint16_t mesures[DIS_ACC];
+int mesures_index = 0;
+const uint16_t MAX_DISTANCE = 400;
+
+//Action Variables
+Adafruit_NeoPixel strip;
+bool need_to_spit = false;
+bool already_fireing = false;
+uint16_t head_sens = 0;
+uint16_t light_sens = 0;
+uint16_t light_twinkle_countdown = 0;
+bool lights_on = false;
+
+//Timers
 unsigned long light_timer;
 unsigned long cooldown_timer;
 unsigned long head_timer;
@@ -60,19 +81,13 @@ unsigned long spit_timer;
 unsigned long begin_time = 0;
 unsigned long end_time = 0;
 
-//Distance avarage(In CM)
-const int DIS_ACC = 12; //Sample Avg.
-uint16_t mesures[DIS_ACC];
-int mesures_index = 0;
-const uint16_t MAX_DISTANCE = 400;
-
-//Servo Configuration
+//Servo Variables
 Servo servo_head;
 Servo servo_spit;
 uint8_t servo_head_angle = HEAD_BEGIN_ANGLE;
 uint8_t servo_spit_angle = SPIT_BEGIN_ANGLE;
  
-void setup(){
+void setup(){ //Get shit together.
   //Setup Serial Information
   Serial.begin (9600);
   
@@ -100,7 +115,7 @@ void setup(){
   DEBUG_PRINT("READY");
 }
 
-void startCooldown(){
+void startCooldown(){ //Set the cooldown and set everything back to a "Known" State.
   lightsOff();
   DEBUG_PRINT("DONE");
   already_fireing = false;
@@ -119,7 +134,7 @@ void startCooldown(){
   
 }
 
-void lightsOff(){
+void lightsOff(){ //Turn the lights out.
   if(lights_on)
   {
     lights_on = false;
@@ -129,32 +144,34 @@ void lightsOff(){
   }
 }
 
-void twinkle() {
-  if(!lights_on)
-  {
+void twinkle() { //Call each loop to twinkle Lights
+  if(!lights_on){
     DEBUG_PRINT("Twinkle");
     lights_on = true;
   }
-  for (int i=0; i<NUM_LEDS; i++) {
-    switch(random(3)) {
-      case 0:
-        // Purple
-        setPixel(random(NUM_LEDS), 0xff, 0xff, 0x00);
-        break;
-      case 1:
-        // Green
-        setPixel(random(NUM_LEDS),0x00, 0x00, 0xFF);
-        break;
-      case 2:
-        // Whit-ish
-        setPixel(random(NUM_LEDS),0xE0, 0xE0, 0xE0);
-        break;
+  if(light_twinkle_countdown++ > TWINKLE_RATE){
+      for (int i=0; i<NUM_LEDS; i++) {
+      switch(random(3)) {
+        case 0:
+          // Purple
+          setPixel(random(NUM_LEDS), 0xff, 0xff, 0x00);
+          break;
+        case 1:
+          // Green
+          setPixel(random(NUM_LEDS),0x00, 0x00, 0xFF);
+          break;
+        case 2:
+          // Whit-ish
+          setPixel(random(NUM_LEDS),0xE0, 0xE0, 0xE0);
+          break;
+      }
     }
     showStrip(); 
+    light_twinkle_countdown = 0;
   }
 }
 
-void showStrip() {
+void showStrip() { //Apply the light colors
  #ifdef ADAFRUIT_NEOPIXEL_H 
    // NeoPixel
    strip.show();
@@ -185,7 +202,7 @@ void setAll(byte red, byte green, byte blue) {
   showStrip();
 }
 
-unsigned int getAvarageDistance(){
+unsigned int getAvarageDistance(){ //Calculate avarage of distance for linear smothing
   unsigned int dist = getDistanceOfSensor();
   if(dist > MAX_DISTANCE)
   {
@@ -210,7 +227,7 @@ unsigned int getAvarageDistance(){
   return total / DIS_ACC;
 }
 
-unsigned int getDistanceOfSensor(){
+unsigned int getDistanceOfSensor(){ //Get distance of sensor.
   // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
   // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
   digitalWrite(SENS_TRIG, LOW);
@@ -233,7 +250,7 @@ unsigned int getDistanceOfSensor(){
   return distance;
 }
 
-void recalculate(const unsigned long deltatime,unsigned long& mtime){
+void recalculate(const unsigned long deltatime,unsigned long& mtime){ //Ajust timers based on "DELTA" Time
   if(mtime > 0)
   {
     if(mtime < deltatime)
@@ -247,7 +264,7 @@ void recalculate(const unsigned long deltatime,unsigned long& mtime){
   }
 }
 
-void handleHead(){
+void handleHead(){ //Handle head motion
   if(head_timer == 0){
       if(already_fireing){
         startCooldown();
@@ -267,7 +284,7 @@ void handleHead(){
     }
 }
 
-void handleLight(){
+void handleLight(){ //Handle Light action
   if(light_timer == 0){
       lightsOff();
     }
@@ -276,7 +293,7 @@ void handleLight(){
     }
 }
 
-void handleSpit(){
+void handleSpit(){ //Handle Spitting
   if(spit_timer == 0){
       if(need_to_spit)
       {
@@ -293,25 +310,8 @@ void handleSpit(){
     }
 }
 
-//No delays in Loop =D
-void loop(){
-  servo_head.write(servo_head_angle);
-  servo_spit.write(servo_spit_angle);
-  unsigned long deltatime = end_time - begin_time;
-  begin_time = millis();
-  //Apply time delta
-  recalculate(deltatime,light_timer);
-  recalculate(deltatime,head_timer);
-  recalculate(deltatime,spit_timer);
-  recalculate(deltatime,cooldown_timer);
-  if(cooldown_timer == 0){
-    //CHeck triggers
-    handleLight();
-    handleSpit();
-    handleHead();
-
-   if(!already_fireing){
-    int distance = getAvarageDistance();
+void handleDistanceSensor(){ //Checks the distance sensor to see if actions need to take place.
+  int distance = getAvarageDistance();
       if(distance < LIGHT_SENS_DISTANCE_MAX){
         if(light_sens >= LIGHT_SENS_MAX)
         {
@@ -331,7 +331,7 @@ void loop(){
       if(distance < HEAD_SENS_DISTANCE_MAX){
         if(head_sens >= HEAD_SENS_MAX)
         {
-          head_timer = HEAD_UP_MAX;
+          head_timer = HOLD_SPRAY_MAX + DELAY_BEFORE_SPRAY;
         }
         else
         {
@@ -344,13 +344,31 @@ void loop(){
           head_sens--;
         }
       } 
+}
+
+void loop(){ //No delays in Loop =D
+  servo_head.write(servo_head_angle);
+  servo_spit.write(servo_spit_angle);
+  unsigned long deltatime = end_time - begin_time;
+  begin_time = millis();
+  //Reduce timers
+  recalculate(deltatime,light_timer);
+  recalculate(deltatime,head_timer);
+  recalculate(deltatime,spit_timer);
+  recalculate(deltatime,cooldown_timer);
+  if(cooldown_timer == 0){
+    //Check Timer Triggers
+    handleLight();
+    handleSpit();
+    handleHead();
+
+   if(!already_fireing){
+      handleDistanceSensor();
    }
-    
   }
   else
   {
-    //Serial.print("Cooldown: ");
-    //Serial.println(cooldown_timer);
+    DEBUG_PRINT(cooldown_timer);
   }
   end_time = millis();
 }
