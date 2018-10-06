@@ -10,6 +10,9 @@
     if(30% Random)
       Fire Servo
 */
+
+#define DEBUG_PRINT(x) //Serial.println(x);
+
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 
@@ -29,10 +32,6 @@ const uint8_t LIGHT_SENS_MAX = 10;
 const uint8_t LIGHT_SENS_DISTANCE_MAX = 120;
 uint16_t light_sens = 0;
 
-//Servo Configuration
-Servo servo_head;
-Servo servo_spit;
-
 //Head
 bool already_fireing = false;
 const uint16_t HEAD_BEGIN_ANGLE = 0;
@@ -43,13 +42,13 @@ uint16_t head_sens = 0;
 
 //Spit
 const uint8_t SPIT_BEGIN_ANGLE = 0;
-const uint8_t SPIT_END_ANGLE = 90;
+const uint8_t SPIT_END_ANGLE = 120;
 bool need_to_spit = false;
 const uint8_t SPIT_CHANCE = 30; //30%
 
 //Timer Config (In Mili)
 const uint16_t LIGHT_DELAY_MAX = 7000; //How long lights stay on
-const uint16_t COOLDOWN_TIMER_MAX = 3000; //How long before next scare.
+const uint16_t COOLDOWN_TIMER_MAX = 10000; //How long before next scare.
 const uint16_t DELAY_BEFORE_SPRAY = 2000; //Delay before spit
 const uint16_t HOLD_SPRAY_MAX = 1000; //Hold down spit servo
 const uint16_t HEAD_UP_MAX = 3000; //How long head stays up
@@ -62,10 +61,16 @@ unsigned long begin_time = 0;
 unsigned long end_time = 0;
 
 //Distance avarage(In CM)
-const int DIS_ACC = 30; //Sample Avg.
+const int DIS_ACC = 12; //Sample Avg.
 uint16_t mesures[DIS_ACC];
 int mesures_index = 0;
 const uint16_t MAX_DISTANCE = 400;
+
+//Servo Configuration
+Servo servo_head;
+Servo servo_spit;
+uint8_t servo_head_angle = HEAD_BEGIN_ANGLE;
+uint8_t servo_spit_angle = SPIT_BEGIN_ANGLE;
  
 void setup(){
   //Setup Serial Information
@@ -84,23 +89,23 @@ void setup(){
   strip.show(); // Initialize all pixels to 'off'
 
   //init servos
-  servo_head.attach(SERVO_1); // attaches the servo on pin 9 to the servo object
-  servo_spit.attach(SERVO_2); // attaches the servo on pin 9 to the servo object
+  servo_head.attach(SERVO_1); 
+  servo_spit.attach(SERVO_2); 
 
   //init avarage distance
   for(int i = 0; i < DIS_ACC; i++)
   {
     mesures[i] = MAX_DISTANCE;
   }
-  Serial.println("READY");
+  DEBUG_PRINT("READY");
 }
 
 void startCooldown(){
   lightsOff();
-  Serial.println("DONE");
+  DEBUG_PRINT("DONE");
   already_fireing = false;
-  servo_head.write(HEAD_END_ANGLE);
-  servo_spit.write(SPIT_END_ANGLE);
+  servo_head_angle = HEAD_BEGIN_ANGLE;
+  servo_spit_angle = SPIT_BEGIN_ANGLE;
   cooldown_timer = COOLDOWN_TIMER_MAX;
   light_timer = 0;
   head_timer = 0;
@@ -111,13 +116,14 @@ void startCooldown(){
   {
     mesures[i] = MAX_DISTANCE;
   }
+  
 }
 
 void lightsOff(){
   if(lights_on)
   {
     lights_on = false;
-    Serial.println("Lights Out");
+    DEBUG_PRINT("Lights Out");
     setAll(0,0,0);
     showStrip();
   }
@@ -126,7 +132,7 @@ void lightsOff(){
 void twinkle() {
   if(!lights_on)
   {
-    Serial.println("Twinkle");
+    DEBUG_PRINT("Twinkle");
     lights_on = true;
   }
   for (int i=0; i<NUM_LEDS; i++) {
@@ -250,12 +256,12 @@ void handleHead(){
     else{
       if(!already_fireing)
       {
-        Serial.println("HEAD");
+        DEBUG_PRINT("HEAD");
         if(random(0, 100) < SPIT_CHANCE)
         {
           spit_timer = DELAY_BEFORE_SPRAY;
         }
-        servo_head.write(HEAD_BEGIN_ANGLE);
+        servo_head_angle = HEAD_END_ANGLE;
         already_fireing = true;
       }
     }
@@ -274,8 +280,8 @@ void handleSpit(){
   if(spit_timer == 0){
       if(need_to_spit)
       {
-        Serial.println("SPITTING");
-        servo_spit.write(SPIT_BEGIN_ANGLE);
+        DEBUG_PRINT("SPITTING");
+        servo_spit_angle = SPIT_END_ANGLE;
         need_to_spit = false;
       }
     }
@@ -289,6 +295,8 @@ void handleSpit(){
 
 //No delays in Loop =D
 void loop(){
+  servo_head.write(servo_head_angle);
+  servo_spit.write(servo_spit_angle);
   unsigned long deltatime = end_time - begin_time;
   begin_time = millis();
   //Apply time delta
@@ -296,8 +304,7 @@ void loop(){
   recalculate(deltatime,head_timer);
   recalculate(deltatime,spit_timer);
   recalculate(deltatime,cooldown_timer);
-  if(cooldown_timer == 0)
-  {
+  if(cooldown_timer == 0){
     //CHeck triggers
     handleLight();
     handleSpit();
@@ -342,9 +349,8 @@ void loop(){
   }
   else
   {
-    Serial.print("Cooldown: ");
-    Serial.println(cooldown_timer);
-    delay(100);
+    //Serial.print("Cooldown: ");
+    //Serial.println(cooldown_timer);
   }
   end_time = millis();
 }
