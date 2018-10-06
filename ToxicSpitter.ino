@@ -24,6 +24,7 @@ const uint8_t SENS_ECHO = 13;
 const uint8_t NUM_LEDS = 5;
 Adafruit_NeoPixel strip;
 const uint8_t TWINKLE_RATE = 10;
+bool lights_on = false;
 
 //Servo Configuration
 Servo servo_head;
@@ -31,22 +32,31 @@ Servo servo_spit;
 
 //Head
 bool already_fireing = false;
+const unsigned int HEAD_BEGIN_ANGLE = 0;
+const unsigned int HEAD_END_ANGLE = 90;
 
-//Timer Config
+//Spit
+const unsigned int SPIT_BEGIN_ANGLE = 0;
+const unsigned int SPIT_END_ANGLE = 90;
+bool need_to_spit = false;
+const unsigned int SPIT_CHANCE = 30; //30%
+
+//Timer Config (In Mili)
 const int LIGHT_DELAY_MAX = 7000; //How long lights stay on
-const int COOLDOWN_TIMER_MAX = 30000; //How long before next scare.
+const int COOLDOWN_TIMER_MAX = 3000; //How long before next scare.
 const int DELAY_BEFORE_SPRAY = 2000; //Delay before spit
 const int HOLD_SPRAY_MAX = 1000; //Hold down spit servo
-const int HEAD_UP_MAX = 2000; //How long head stays up
+const int HEAD_UP_MAX = 3000; //How long head stays up
 unsigned long light_timer;
 unsigned long cooldown_timer;
 unsigned long head_timer;
+unsigned long hold_spray;
 unsigned long spit_timer;
 unsigned long begin_time = 0;
 unsigned long end_time = 0;
 
-//Distance avarage
-const int DIS_ACC = 30;
+//Distance avarage(In CM)
+const int DIS_ACC = 30; //Sample Avg.
 unsigned int mesures[DIS_ACC];
 int mesures_index = 0;
 const unsigned int MAX_DISTANCE = 400;
@@ -76,6 +86,72 @@ void setup(){
   {
     mesures[i] = MAX_DISTANCE;
   }
+}
+
+void lightsOff(){
+  if(lights_on)
+  {
+    lights_on = false;
+    Serial.println("Lights Out");
+    setAll(0,0,0);
+    showStrip();
+  }
+}
+
+void twinkle() {
+  if(!lights_on)
+  {
+    Serial.println("Twinkle");
+    lights_on = true;
+  }
+  for (int i=0; i<NUM_LEDS; i++) {
+    switch(random(3)) {
+      case 0:
+        // Purple
+        setPixel(random(NUM_LEDS), 0xff, 0xff, 0x00);
+        break;
+      case 1:
+        // Green
+        setPixel(random(NUM_LEDS),0x00, 0x00, 0xFF);
+        break;
+      case 2:
+        // Whit-ish
+        setPixel(random(NUM_LEDS),0xE0, 0xE0, 0xE0);
+        break;
+    }
+    showStrip(); 
+  }
+}
+
+void showStrip() {
+ #ifdef ADAFRUIT_NEOPIXEL_H 
+   // NeoPixel
+   strip.show();
+ #endif
+ #ifndef ADAFRUIT_NEOPIXEL_H
+   // FastLED
+   FastLED.show();
+ #endif
+}
+
+void setPixel(int Pixel, byte red, byte green, byte blue) {
+ #ifdef ADAFRUIT_NEOPIXEL_H 
+   // NeoPixel
+   strip.setPixelColor(Pixel, strip.Color(red, green, blue));
+ #endif
+ #ifndef ADAFRUIT_NEOPIXEL_H 
+   // FastLED
+   leds[Pixel].r = red;
+   leds[Pixel].g = green;
+   leds[Pixel].b = blue;
+ #endif
+}
+
+void setAll(byte red, byte green, byte blue) {
+  for(int i = 0; i < NUM_LEDS; i++ ) {
+    setPixel(i, red, green, blue); 
+  }
+  showStrip();
 }
 
 unsigned int getAvarageDistance(){
@@ -140,19 +216,57 @@ void recalculate(const unsigned long deltatime,unsigned long& mtime){
   }
 }
 
-void fireHead(){
-  if(already_fireing)
-  {
-    
-  }
-  else
-  {
-    Serial.println("FIRE");
-    //Do calculations to see if it sprays
-    servo_head.write(170);
-    already_fireing = true;
-  }
+void handleHead(){
+  if(head_timer == 0){
+      if(already_fireing){
+        lightsOff();
+        Serial.println("DONE");
+        already_fireing = false;
+        servo_head.write(HEAD_END_ANGLE);
+        servo_spit.write(SPIT_END_ANGLE);
+        cooldown_timer = COOLDOWN_TIMER_MAX;
+      }
+    }
+    else{
+      if(!already_fireing)
+      {
+        Serial.println("HEAD");
+        if(random(0, 100) < SPIT_CHANCE)
+        {
+          spit_timer = DELAY_BEFORE_SPRAY;
+        }
+        servo_head.write(HEAD_BEGIN_ANGLE);
+        already_fireing = true;
+      }
+    }
 }
+
+void handleLight(){
+  if(light_timer == 0){
+      lightsOff();
+    }
+    else{
+      twinkle();
+    }
+}
+
+void handleSpit(){
+  if(spit_timer == 0){
+      if(need_to_spit)
+      {
+        Serial.println("SPITTING");
+        servo_spit.write(SPIT_BEGIN_ANGLE);
+        need_to_spit = false;
+      }
+    }
+    else{
+      if(!need_to_spit)
+      {
+        need_to_spit = true;
+      }
+    }
+}
+
 //No delays in Loop =D
 void loop(){
   unsigned long deltatime = end_time - begin_time;
@@ -161,93 +275,32 @@ void loop(){
   recalculate(deltatime,light_timer);
   recalculate(deltatime,head_timer);
   recalculate(deltatime,spit_timer);
-  //CHeck triggers
-  if(head_timer == 0){
-    if(already_fireing)
+  recalculate(deltatime,cooldown_timer);
+  if(cooldown_timer == 0)
+  {
+    //CHeck triggers
+    handleLight();
+    handleSpit();
+    handleHead();
+
+    if(!already_fireing)
     {
-      Serial.println("DONE");
-      already_fireing = false;
-      servo_head.write(0);
-    }
+      int distance = getAvarageDistance();
+      if(distance < 120){
+        light_timer = LIGHT_DELAY_MAX;
+      }
+      if(distance < 40){
+        head_timer = HEAD_UP_MAX;
+      }
+    }    
   }
-  else{
-    fireHead();
-  }
-  if(light_timer == 0){
-    setAll(0,0,0);
-    showStrip();
-  }
-  else{
-    twinkle();
-  }
-  if(spit_timer == 0){
-    servo_spit.write(0);
-  }
-  else{
-    
-  }
-  
-  int distance = getAvarageDistance();
-  if(distance < 120){
-    light_timer = LIGHT_DELAY_MAX;
-  }
-  if(distance < 40){
-    head_timer = HEAD_UP_MAX;
+  else
+  {
+    Serial.print("Cooldown: ");
+    Serial.println(cooldown_timer);
+    delay(100);
   }
   end_time = millis();
-}
-
-
-void twinkle() {
-  //setAll(0,0,0);
-  for (int i=0; i<NUM_LEDS; i++) {
-    switch(random(3)) {
-      case 0:
-        // Purple
-        setPixel(random(NUM_LEDS), 0xff, 0xff, 0x00);
-        break;
-      case 1:
-        // Green
-        setPixel(random(NUM_LEDS),0x00, 0x00, 0xFF);
-        break;
-      case 2:
-        // Whit-ish
-        setPixel(random(NUM_LEDS),0xE0, 0xE0, 0xE0);
-        break;
-    }
-    showStrip(); 
-  }
-}
-
-void showStrip() {
- #ifdef ADAFRUIT_NEOPIXEL_H 
-   // NeoPixel
-   strip.show();
- #endif
- #ifndef ADAFRUIT_NEOPIXEL_H
-   // FastLED
-   FastLED.show();
- #endif
-}
-
-void setPixel(int Pixel, byte red, byte green, byte blue) {
- #ifdef ADAFRUIT_NEOPIXEL_H 
-   // NeoPixel
-   strip.setPixelColor(Pixel, strip.Color(red, green, blue));
- #endif
- #ifndef ADAFRUIT_NEOPIXEL_H 
-   // FastLED
-   leds[Pixel].r = red;
-   leds[Pixel].g = green;
-   leds[Pixel].b = blue;
- #endif
-}
-
-void setAll(byte red, byte green, byte blue) {
-  for(int i = 0; i < NUM_LEDS; i++ ) {
-    setPixel(i, red, green, blue); 
-  }
-  showStrip();
 }
 
 
